@@ -2,7 +2,7 @@ use anyhow::Context;
 use cargo_about::{
     licenses::{
         config::{Clarification, ClarificationFile},
-        Gatherer, KrateLicense, LicenseFileKind, LicenseInfo,
+        Gatherer, KrateLicense, LicenseFileKind, LicenseInfo, LicenseSource,
     },
     validate_sha256, Krates,
 };
@@ -48,6 +48,19 @@ impl Display for Expression {
 impl From<spdx::Expression> for Expression {
     fn from(value: spdx::Expression) -> Self {
         Self(value)
+    }
+}
+
+impl From<&LicenseSource> for Expression {
+    fn from(value: &LicenseSource) -> Self {
+        match value {
+            LicenseSource::Clarified(expr) => Self(expr.clone()),
+            // ids come from the spdx license list itself, but may be deprecated
+            LicenseSource::Detected(id) => {
+                let mode = spdx::ParseMode { allow_deprecated: true, ..spdx::ParseMode::STRICT };
+                Self(spdx::Expression::parse_mode(id.name, mode).expect("license id is a valid SPDX expression"))
+            },
+        }
     }
 }
 
@@ -283,7 +296,7 @@ fn spdx_any_in_common(expr1: &Expression, expr2: &Expression) -> bool {
 }
 
 fn select_clarification<'cfg>(package_name: &str, config: &'cfg Config) -> Option<&'cfg Clarification> {
-    config.crates.get(package_name)?.clarify.as_ref()
+    config.crates.get(package_name)?.value.clarify.as_ref()
 }
 
 fn select_file_license_clarification<'c>(
@@ -345,7 +358,7 @@ fn collect_krate_licenses(
     config: &Config,
 ) -> anyhow::Result<Vec<Package>> {
     let g = Gatherer::with_store(license_store);
-    let c = reqwest::blocking::Client::new();
+    let c = ureq::Agent::new_with_defaults();
 
     let mut packages = Vec::new();
 
@@ -355,7 +368,7 @@ fn collect_krate_licenses(
                 let licenses_in_top_level_expr = licenses_in_expr(expr);
                 let licenses_in_files: usize = license_files
                     .iter()
-                    .map(|file| licenses_in_expr(&file.license_expr))
+                    .map(|file| licenses_in_expr(&Expression::from(&file.license)))
                     .sum();
 
                 if licenses_in_top_level_expr != licenses_in_files {
@@ -377,10 +390,11 @@ fn collect_krate_licenses(
         let mut lfiles = vec![];
         for l in license_files {
             let name = l.path.file_name().unwrap().to_owned();
+            let spdx = Some((&l.license).into());
 
             match l.kind {
                 LicenseFileKind::Text(text) | LicenseFileKind::AddendumText(text, _) => {
-                    lfiles.push(LicenseFile { name, spdx: Some(l.license_expr.into()), text })
+                    lfiles.push(LicenseFile { name, spdx, text })
                 },
                 LicenseFileKind::Header => {
                     let license_path = if l.path.is_absolute() {
@@ -391,7 +405,7 @@ fn collect_krate_licenses(
 
                     let name = license_path.file_name().unwrap().to_owned();
                     match std::fs::read_to_string(&license_path) {
-                        Ok(text) => lfiles.push(LicenseFile { name, spdx: Some(l.license_expr.into()), text }),
+                        Ok(text) => lfiles.push(LicenseFile { name, spdx, text }),
                         Err(e) => {
                             tracing::warn!("Unable to read license file {license_path}: {e:#}")
                         },
@@ -453,5 +467,17 @@ mod tests {
         let json = r#"{ "name": "test", "text": "AAA"  }"#;
         let x: LicenseFile = serde_json::from_str(json).unwrap();
         assert!(x.spdx.is_none());
+    }
+
+    #[test]
+    fn detect_own_licenses() {
+        let manifest = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let store = license_store_from_cache().unwrap();
+        let packages = get_all_licenses(manifest, vec![], store, &Config::default()).unwrap();
+
+        let anyhow = packages.iter().find(|p| p.package_name == "anyhow").unwrap();
+        assert_eq!(anyhow.license_spdx.as_ref().unwrap().to_string(), "MIT OR Apache-2.0");
+        assert_eq!(anyhow.license_files.len(), 2);
+        assert!(anyhow.license_files.iter().all(|f| f.spdx.is_some() && !f.text.is_empty()));
     }
 }
