@@ -500,9 +500,11 @@ pub fn allow_incomplete(result: Result<Vec<Package>, Error>) -> Result<Vec<Packa
     match result {
         Ok(packages) => Ok(packages),
         Err(Error::Incomplete(incomplete)) => {
-            tracing::warn!("{incomplete}");
+            for diagnostic in incomplete.diagnostics {
+                tracing::warn!("{diagnostic}");
+            }
             Ok(incomplete.partially_processed)
-        },
+        }
         Err(e) => Err(e),
     }
 }
