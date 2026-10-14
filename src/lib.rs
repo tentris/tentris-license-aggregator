@@ -213,6 +213,12 @@ pub enum Diagnostic {
         expected: usize,
         found: usize,
     },
+    #[error("Unable to minimize requirements of '{package}'")]
+    Minimize {
+        package: PackageIdentification,
+        #[source]
+        source: MinimizeError,
+    },
 }
 
 /// All diagnostics found by an operation that ran to completion anyway
@@ -257,12 +263,6 @@ pub enum Error {
     LicenseStore(#[source] anyhow::Error),
     #[error("Unable to get crates")]
     Krates(#[source] anyhow::Error),
-    #[error("Unable to minimize requirements of '{package}'")]
-    Minimize {
-        package: PackageIdentification,
-        #[source]
-        source: MinimizeError,
-    },
     #[error(transparent)]
     Incomplete(#[from] Incomplete),
 }
@@ -456,30 +456,52 @@ fn clarification_for_existing_license(
 ///
 /// # Example
 /// `MIT OR Apache-2.0` may be minimized to just `MIT`
-pub fn minimize_requirements(packages: &mut [Package], config: &Config) -> Result<(), Error> {
-    for p in packages {
-        if let Some(lspdx) = &p.license_spdx {
-            let minimized = lspdx
-                .minimized_requirements(&config.accepted)
-                .map_err(|source| Error::Minimize {
+///
+/// Packages that cannot be minimized are left untouched and reported via [`Error::Incomplete`].
+pub fn minimize_requirements(
+    mut packages: Vec<Package>,
+    config: &Config,
+) -> Result<Vec<Package>, Error> {
+    let mut diagnostics = vec![];
+
+    for p in &mut packages {
+        let Some(lspdx) = &p.license_spdx else {
+            continue;
+        };
+
+        let minimized = match lspdx.minimized_requirements(&config.accepted) {
+            Ok(minimized) => minimized,
+            Err(source) => {
+                diagnostics.push(Diagnostic::Minimize {
                     package: (&*p).into(),
                     source,
-                })?;
+                });
+                continue;
+            }
+        };
 
-            // retain the file if any of its SPDX components
-            // appear in the minimized version
-            p.license_files.retain(|license_file| {
-                license_file.spdx.is_none()
-                    || license_file.spdx.as_ref().is_some_and(|file_spdx| {
-                        file_spdx
-                            .requirements()
-                            .any(|file_req| minimized.contains(&file_req.req))
-                    })
-            })
-        }
+        // retain the file if any of its SPDX components
+        // appear in the minimized version
+        p.license_files.retain(|license_file| {
+            license_file.spdx.is_none()
+                || license_file.spdx.as_ref().is_some_and(|file_spdx| {
+                    file_spdx
+                        .requirements()
+                        .any(|file_req| minimized.contains(&file_req.req))
+                })
+        })
     }
 
-    Ok(())
+    finish(packages, diagnostics)
+}
+
+/// Allow a partial function result, turning it into Ok(_)
+pub fn allow_incomplete(result: Result<Vec<Package>, Error>) -> Result<Vec<Package>, Error> {
+    match result {
+        Ok(packages) => Ok(packages),
+        Err(Error::Incomplete(incomplete)) => Ok(incomplete.partially_processed),
+        Err(e) => Err(e),
+    }
 }
 
 fn collect_krate_licenses(
