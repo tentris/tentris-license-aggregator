@@ -256,7 +256,7 @@ pub fn augment_licenses(
                         .as_ref()
                         .is_some_and(|pkg_spdx| !spdx_any_in_common(pkg_spdx, &file_spdx))
                     {
-                        tracing::warn!(
+                        tracing::error!(
                             "License detection of file {} detected as {} for '{} {}' is probably wrong: package license and file license have nothing in common",
                             l.name,
                             file_spdx,
@@ -279,7 +279,7 @@ pub fn augment_licenses(
             .sum();
 
         if licenses_in_top_level_expr != licenses_in_files {
-            tracing::warn!("Mismatch between license SPDX and number of licenses found in files for crate '{} {}'. SPDX specifies {licenses_in_top_level_expr} but found {licenses_in_files} in files",
+            tracing::error!("Mismatch between license SPDX and number of licenses found in files for crate '{} {}'. SPDX specifies {licenses_in_top_level_expr} but found {licenses_in_files} in files",
                 pkg.package_name,
                 pkg.package_version
             );
@@ -372,13 +372,13 @@ fn collect_krate_licenses(
                     .sum();
 
                 if licenses_in_top_level_expr != licenses_in_files {
-                    tracing::warn!("Mismatch between license SPDX and number of licenses found in files for crate '{krate}'. SPDX specifies {licenses_in_top_level_expr} but found {licenses_in_files} in files");
+                    tracing::error!("Mismatch between license SPDX and number of licenses found in files for crate '{krate}'. SPDX specifies {licenses_in_top_level_expr} but found {licenses_in_files} in files");
                 }
 
                 Some(expr.clone().into())
             },
             LicenseInfo::Unknown => {
-                tracing::warn!("crate '{krate}' has unknown license");
+                tracing::error!("crate '{krate}' has unknown license");
                 None
             },
             LicenseInfo::Ignore => {
@@ -407,7 +407,7 @@ fn collect_krate_licenses(
                     match std::fs::read_to_string(&license_path) {
                         Ok(text) => lfiles.push(LicenseFile { name, spdx, text }),
                         Err(e) => {
-                            tracing::warn!("Unable to read license file {license_path}: {e:#}")
+                            tracing::error!("Unable to read license file {license_path}: {e:#}")
                         },
                     }
                 },
@@ -415,7 +415,7 @@ fn collect_krate_licenses(
         }
 
         if lfiles.is_empty() {
-            tracing::warn!("Unable to find any license files for {krate}");
+            tracing::error!("Unable to find any license files for {krate}");
         }
 
         let package = Package {
