@@ -226,7 +226,7 @@ pub fn augment_licenses(
                 true
             });
         } else if pkg.license_spdx.is_none() {
-            tracing::warn!(
+            tracing::error!(
                 "No combined license SPDX available for '{} {}'",
                 pkg.package_name,
                 pkg.package_version
@@ -239,7 +239,7 @@ pub fn augment_licenses(
             let analysis = license_store.analyze(&text);
 
             if analysis.score < 0.95 {
-                tracing::warn!(
+                tracing::error!(
                     "Low confidence of {} for {} on license file SPDX detection for {} of '{} {}'",
                     analysis.score,
                     analysis.name,
