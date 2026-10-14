@@ -499,7 +499,10 @@ pub fn minimize_requirements(
 pub fn allow_incomplete(result: Result<Vec<Package>, Error>) -> Result<Vec<Package>, Error> {
     match result {
         Ok(packages) => Ok(packages),
-        Err(Error::Incomplete(incomplete)) => Ok(incomplete.partially_processed),
+        Err(Error::Incomplete(incomplete)) => {
+            tracing::warn!("{incomplete}");
+            Ok(incomplete.partially_processed)
+        },
         Err(e) => Err(e),
     }
 }
