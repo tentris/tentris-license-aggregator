@@ -1,6 +1,6 @@
 [package]
 name = "tentris-license-aggregator"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 keywords = ["build-script", "licenses", "spdx"]
 repository = "https://github.com/dice-group/tentris-license-aggregator"
@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "^1"
+thiserror = "^2"
 tracing = "^0.1"
 cargo-about = "^0.9"
 ureq = "^3.3"
